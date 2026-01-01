@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
-	"log/slog"
-
+	"github.com/felipsmartins/someone-is-sus/internal/database"
 	"github.com/felipsmartins/someone-is-sus/internal/steam"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func configureLogger(attrs []slog.Attr) (*slog.Logger, error) {
@@ -45,18 +50,49 @@ func (hs *handlerSet) home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (hs *handlerSet) reportUser(w http.ResponseWriter, r *http.Request) {
+	hs.logger.Debug("user endpoint called")
 	profileURL := r.URL.Query().Get("url")
 	steamClient := steam.New(os.Getenv("STEAM_API_KEY"))
 	val, err := steamClient.GetSteamIDByCustomURL(profileURL)
 
 	if err != nil {
-		hs.logger.Error(fmt.Sprintf("report user failed: "))
+		hs.logger.Error(fmt.Sprintf("report_failed: error requesting steam API"), "detail", err, "profile", val)
+		return
+	}
+
+	if err = reportPlayer(r.Context()); err != nil {
+		hs.logger.Error(fmt.Sprintf("report_failed: error saving"), "detail", err, "profile", val)
 		return
 	}
 
 	_, _ = w.Write([]byte("\nsteamID:" + val))
 
 	hs.logger.Info("reporting profile URL", "profile", val)
+}
+
+func reportPlayer(ctx context.Context) error {
+	db, err := sql.Open("sqlite3", "./sus.sqlite")
+
+	if err != nil {
+		return fmt.Errorf("connecting database: %w", err)
+	}
+
+	defer db.Close()
+
+	queries := database.New(db)
+	token := rand.Text()
+	_, err = queries.RegisterPlayer(ctx, database.RegisterPlayerParams{
+		PlayerID:   token,
+		GameID:     1,
+		ReportedBy: sql.NullString{String: "@some", Valid: true},
+		ReportedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return nil
 }
 
 func main() {
