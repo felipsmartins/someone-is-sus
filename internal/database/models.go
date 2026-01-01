@@ -6,7 +6,6 @@ package database
 
 import (
 	"database/sql"
-	"time"
 )
 
 type Game struct {
@@ -19,5 +18,5 @@ type Player struct {
 	PlayerID   string
 	GameID     int64
 	ReportedBy sql.NullString
-	ReportedAt time.Time
+	ReportedAt string
 }

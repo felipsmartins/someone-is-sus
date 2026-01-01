@@ -10,6 +10,3 @@ sql:
       go:
         package: "database"
         out: "internal/database"
-        overrides:
-          - column: "players.reported_at"
-            go_type: "time.Time"

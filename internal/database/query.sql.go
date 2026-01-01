@@ -8,7 +8,6 @@ package database
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 const getPlayer = `-- name: GetPlayer :one
@@ -75,7 +74,7 @@ type RegisterPlayerParams struct {
 	PlayerID   string
 	GameID     int64
 	ReportedBy sql.NullString
-	ReportedAt time.Time
+	ReportedAt string
 }
 
 func (q *Queries) RegisterPlayer(ctx context.Context, arg RegisterPlayerParams) (Player, error) {
