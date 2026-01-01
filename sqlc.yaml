@@ -1,15 +1,15 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    queries: "database/query.sql"
-    schema: "database/schema.sql"
+    queries: "internal/database/query.sql"
+    schema: "internal/database/schema.sql"
     database:
       managed: true
       uri: "file:sus.sqlite"
     gen:
       go:
         package: "database"
-        out: "database"
+        out: "internal/database"
         overrides:
           - column: "players.reported_at"
             go_type: "time.Time"

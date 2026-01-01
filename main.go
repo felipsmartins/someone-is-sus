@@ -10,7 +10,7 @@ import (
 
 	"log/slog"
 
-	"github.com/felipsmartins/someone-is-sus/steam"
+	"github.com/felipsmartins/someone-is-sus/internal/steam"
 )
 
 func configureLogger(attrs []slog.Attr) (*slog.Logger, error) {
