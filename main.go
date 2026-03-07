@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/felipsmartins/someone-is-sus/internal/database"
 	"github.com/felipsmartins/someone-is-sus/internal/steam"
+	"github.com/felipsmartins/someone-is-sus/internal/types"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -53,43 +56,112 @@ func (hs *handlerSet) reportUser(w http.ResponseWriter, r *http.Request) {
 	hs.logger.Debug("user endpoint called")
 	profileURL := r.URL.Query().Get("url")
 	steamClient := steam.New(os.Getenv("STEAM_API_KEY"))
-	val, err := steamClient.GetSteamIDByCustomURL(profileURL)
+	steamID, err := steamClient.GetSteamIDByCustomURL(profileURL)
 
 	if err != nil {
-		hs.logger.Error(fmt.Sprintf("report_failed: error requesting steam API"), "detail", err, "profile", val)
+		hs.logger.Error(fmt.Sprintf("report_failed: error requesting steam API"), "detail", err, "profile_url", profileURL, "steam_id", steamID)
 		return
 	}
 
-	if err = reportPlayer(r.Context()); err != nil {
-		hs.logger.Error(fmt.Sprintf("report_failed: error saving"), "detail", err, "profile", val)
+	payload, err := io.ReadAll(r.Body)
+
+	if err != nil {
+		hs.logger.Error(fmt.Sprintf("report_failed: error reading request body"),
+			"detail", err,
+			"profile_url", profileURL,
+			"steam_id", steamID,
+			"payload", payload)
+
+		resBody, _ := json.Marshal(map[string]any{
+			"error": "error reading request body",
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(resBody)
+
+		return
+	}
+	// parse json body
+	var reportInfo types.ReportDataPayload
+	err = json.Unmarshal(payload, &reportInfo)
+
+	if err != nil {
+		hs.logger.Error(fmt.Sprintf("report_failed: error unmarshaling request body: %v", err),
+			"detail", err, "payload", string(payload))
+
+		resBody, _ := json.Marshal(map[string]any{
+			"error": "error parsing request body",
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(resBody)
+
 		return
 	}
 
-	_, _ = w.Write([]byte("\nsteamID:" + val))
+	if err = RegisterReportedPlayer(r.Context(), steamID, reportInfo.GameID, reportInfo.ReportedBy); err != nil {
+		hs.logger.Error(fmt.Sprintf("report_failed: error saving"), "detail", err, "profile_url",
+			profileURL, "steam_id", steamID)
 
-	hs.logger.Info("reporting profile URL", "profile", val)
+		resBody, _ := json.Marshal(map[string]any{
+			"error": "error saving into storage",
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(resBody)
+
+		return
+	}
+
+	res, _ := json.Marshal(map[string]any{
+		"steam_id": steamID,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(res)
+
+	hs.logger.Info("reporting profile URL", "profile", steamID)
 }
 
-func reportPlayer(ctx context.Context) error {
-	db, err := sql.Open("sqlite3", "./sus.sqlite")
+func GetDatabaseConnection() (*sql.DB, error) {
+	connectionOptions := url.Values{}
+	connectionOptions.Add("mode", "rw")
+	connectionOptions.Add("_foreign_keys", "on")
+	dsn := fmt.Sprintf("file:./sus.sqlite?%s", connectionOptions.Encode())
+
+	fmt.Printf("dsn: %v\n", dsn)
+
+	db, err := sql.Open("sqlite3", dsn)
 
 	if err != nil {
-		return fmt.Errorf("connecting database: %w", err)
+		return nil, fmt.Errorf("connecting to database. DSN: %s. Error details: %w", dsn, err)
 	}
 
-	defer db.Close()
+	return db, nil
+}
 
-	queries := database.New(db)
-	token := rand.Text()
+func RegisterReportedPlayer(ctx context.Context, reportedPlayerID string, gameID int64, reportedBy string) error {
+	conn, err := GetDatabaseConnection()
+
+	if err != nil {
+		return err
+	}
+
+	defer conn.Close()
+
+	queries := database.New(conn)
 	_, err = queries.RegisterPlayer(ctx, database.RegisterPlayerParams{
-		PlayerID:   token,
-		GameID:     1,
-		ReportedBy: sql.NullString{String: "@some", Valid: true},
+		PlayerID:   reportedPlayerID,
+		GameID:     gameID,
+		ReportedBy: sql.NullString{String: reportedBy, Valid: true},
 		ReportedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	return nil
