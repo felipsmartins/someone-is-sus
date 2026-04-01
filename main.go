@@ -17,7 +17,7 @@ import (
 
 	"github.com/felipsmartins/someone-is-sus/internal/database"
 	"github.com/felipsmartins/someone-is-sus/internal/steam"
-	"github.com/felipsmartins/someone-is-sus/internal/types"
+	"github.com/felipsmartins/someone-is-sus/internal/types/httpmessage"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -83,7 +83,7 @@ func (hs *handlerSet) reportUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// parse json body
-	var reportInfo types.ReportDataPayload
+	var reportInfo httpmessage.ReportData
 	err = json.Unmarshal(payload, &reportInfo)
 
 	if err != nil {
